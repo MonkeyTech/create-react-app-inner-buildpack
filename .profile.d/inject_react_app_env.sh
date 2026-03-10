@@ -19,7 +19,16 @@ set -e
 
 for js_bundle_filename in $js_bundle_filenames
 do
+  if ! grep -q '{{REACT_APP_VARS_AS_JSON' "$js_bundle_filename"; then
+    continue
+  fi
+
   echo "Injecting runtime env into $js_bundle_filename (from .profile.d/inject_react_app_env.sh)"
+
+  if ! command -v ruby >/dev/null 2>&1; then
+    echo "Error injecting runtime env: ruby is required when REACT_APP runtime placeholders are present."
+    exit 1
+  fi
 
   # Render runtime env vars into bundle.
   ruby -E utf-8:utf-8 \
