@@ -30,19 +30,77 @@ export_env_dir() {
 
 cd $BUILD_DIR
 
-# Set the web root to the build/ directory
-if [ -f "static.json" ]
+config_dir="$BUILD_DIR/config"
+mkdir -p "$config_dir"
+
+if [ -f "$config_dir/nginx.conf.erb" ]
 then
-  echo '       Using existing `static.json`'
+  echo '       Using existing `config/nginx.conf.erb`'
 else
-  echo '       Writing `static.json` to support create-react-app'
-  cat << EOF > static.json
-{
-  "root": "build/",
-  "routes": {
-    "/**": "index.html"
+  if [ -f "static.json" ]
+  then
+    echo '       Found `static.json`; writing default `config/nginx.conf.erb` for Heroku Nginx'
+    echo '       Review `config/nginx.conf.erb` if the app relies on custom static.json behavior'
+  else
+    echo '       Writing `config/nginx.conf.erb` to support create-react-app'
+  fi
+
+  cat << 'EOF' > "$config_dir/nginx.conf.erb"
+daemon off;
+pid /app/nginx.pid;
+error_log stderr info;
+
+worker_processes <%= ENV['NGINX_WORKERS'] || 4 %>;
+
+events {
+  use epoll;
+  accept_mutex on;
+  worker_connections <%= ENV['NGINX_WORKER_CONNECTIONS'] || 1024 %>;
+}
+
+http {
+  gzip on;
+  gzip_comp_level 2;
+  gzip_min_length 512;
+  gzip_proxied any;
+  server_tokens off;
+
+  log_format l2met 'measure#nginx.service=$request_time request_id=$http_x_request_id';
+  access_log /dev/stdout l2met;
+
+  include mime.types;
+  default_type application/octet-stream;
+  sendfile on;
+  client_body_timeout <%= ENV['NGINX_CLIENT_BODY_TIMEOUT'] || 5 %>;
+
+  server {
+    listen <%= ENV["PORT"] %>;
+    server_name _;
+    keepalive_timeout 5;
+    client_max_body_size <%= ENV['NGINX_CLIENT_MAX_BODY_SIZE'] || 1 %>M;
+
+    if ($http_x_forwarded_proto != "https") {
+      return 301 https://$host$request_uri;
+    }
+
+    root /app/build;
+    index index.html;
+
+    location / {
+      try_files $uri $uri/ /index.html;
+    }
   }
 }
+EOF
+fi
+
+if [ -f "Procfile" ]
+then
+  echo '       Using existing `Procfile`'
+else
+  echo '       Writing `Procfile` to support Heroku Nginx static mode'
+  cat << 'EOF' > Procfile
+web: bin/start-nginx-static
 EOF
 fi
 
